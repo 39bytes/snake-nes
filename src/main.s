@@ -161,7 +161,7 @@ nmi:
 :
   cmp #PpuSignal::DisableRendering
   bne :+
-    lda #$00000000
+    lda #%00000000
     sta PPUMASK
     lda #0
     sta nmi_signal
@@ -195,14 +195,14 @@ nmi:
   lda #0
   and #%00000011 ; keep only lowest 2 bits to prevent error
   ora #%10001000
-  sta $2000
+  sta PPUCTRL
   lda #0
-  sta $2005
+  sta PPUSCROLL
   lda #0
-  sta $2005
+  sta PPUSCROLL
   ; enable rendering
   lda #%00011110
-  sta $2001
+  sta PPUMASK
 
 @ppu_update_done:
   ; Done rendering, unlock NMI and acknowledge frame as complete
@@ -339,6 +339,15 @@ irq:
   rts
 .endproc
 
+; Set tile at X/Y to character A next time ppu_update is called
+; Can be used with rendering on
+; Preserves X, Y and A
+.proc ppu_put_char
+  jsr ppu_update_tile
+  
+  rts
+.endproc
+
 ; Makes the background all black.
 ; Rendering must be turned off before this is called.
 .proc clear_background
@@ -377,7 +386,7 @@ irq:
 palettes:
   ; Background Palette
   .byte $0f, $20, $16, $00
-  .byte $0f, $00, $00, $00
+  .byte $0f, $20, $00, $10
   .byte $0f, $00, $00, $00
   .byte $0f, $00, $00, $00
 
@@ -425,10 +434,9 @@ setup:
   jmp @loop
 
 gameover:
-  jsr ppu_disable_rendering
-  jsr clear_background
-@loop:
+  jsr write_gameover_text
   jsr ppu_update
+@loop:
   jmp @loop
 
 ; ----------
@@ -816,6 +824,60 @@ BUTTON_A      = 1 << 7
   ldy apple_y
   lda #8
   jsr ppu_update_tile_2x2
+
+  rts
+.endproc
+
+; 
+; Menu logic
+;
+
+.proc write_gameover_text
+  ldx #12
+  ldy #15
+  lda #71 
+  
+  jsr ppu_put_char
+
+  ldx #13
+  ldy #15
+  lda #65
+  jsr ppu_put_char
+
+  ldx #14
+  ldy #15
+  lda #77
+  jsr ppu_put_char
+
+  ldx #15
+  ldy #15
+  lda #69
+  jsr ppu_put_char
+
+  ldx #16
+  ldy #15
+  lda #32
+  jsr ppu_put_char
+
+  ldx #17
+  ldy #15
+  lda #79
+  jsr ppu_put_char
+
+  ldx #18
+  ldy #15
+  lda #86
+  jsr ppu_put_char
+
+  ldx #19
+  ldy #15
+  lda #69
+  jsr ppu_put_char
+
+  ldx #20
+  ldy #15
+  lda #82
+  jsr ppu_put_char
 
   rts
 .endproc
