@@ -141,11 +141,12 @@ INES_SRAM   = 0 ; Battery backed RAM on cartridge
   pal_update:    .res 32
 
   ; Game state
-  snake_head_index: .res 1
-  snake_direction:  .res 1
-  snake_len:        .res 1
-  snake_x:	    .res 256
-  snake_y:	    .res 256
+  snake_head_index:     .res 1
+  snake_direction:      .res 1
+  snake_next_direction: .res 1
+  snake_len:            .res 1
+  snake_x:	        .res 256
+  snake_y:	        .res 256
 
   apple_x:	    .res 1
   apple_y:	    .res 1
@@ -496,7 +497,7 @@ BUTTON_A      = 1 << 7
     beq @end
     
     lda #Direction::Right
-    sta snake_direction
+    sta snake_next_direction
     jmp @end
 :
   lda buttons             ; if left is pressed
@@ -507,7 +508,7 @@ BUTTON_A      = 1 << 7
     beq @end
 
     lda #Direction::Left
-    sta snake_direction
+    sta snake_next_direction
     jmp @end
 :
   lda buttons             ; if up is pressed
@@ -518,7 +519,7 @@ BUTTON_A      = 1 << 7
     beq @end
 
     lda #Direction::Up
-    sta snake_direction
+    sta snake_next_direction
     jmp @end
 :
   lda buttons             ; if down is pressed
@@ -529,7 +530,7 @@ BUTTON_A      = 1 << 7
     beq @end
 
     lda #Direction::Down
-    sta snake_direction
+    sta snake_next_direction
     jmp @end
 :
   @end:
@@ -598,6 +599,10 @@ BUTTON_A      = 1 << 7
 .proc update_snake_position
   next_x = t1
   next_y = t2
+
+  ; Write queued direction
+  lda snake_next_direction
+  sta snake_direction
 
   ldx snake_head_index
   lda snake_x, x ; store head x
