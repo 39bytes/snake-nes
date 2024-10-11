@@ -63,7 +63,7 @@ INES_SRAM   = 0 ; Battery backed RAM on cartridge
   .byte $00, $00, $00, $00, $00, $00, $00, $00 ; Blank
 
   .byte $00, $00, $00, $00, $00, $00, $00, $00 ; Blank
-  .byte %00000000	; Snake TL
+  .byte %00000000	; Apple TL
   .byte %01111111
   .byte %01111111
   .byte %01111111
@@ -72,7 +72,7 @@ INES_SRAM   = 0 ; Battery backed RAM on cartridge
   .byte %01111111
   .byte %01111111
   .byte $00, $00, $00, $00, $00, $00, $00, $00 ; Blank
-  .byte %00000000	; Snake TR
+  .byte %00000000	; Apple TR
   .byte %11111110
   .byte %11111110
   .byte %11111110
@@ -81,7 +81,7 @@ INES_SRAM   = 0 ; Battery backed RAM on cartridge
   .byte %11111110
   .byte %11111110
   .byte $00, $00, $00, $00, $00, $00, $00, $00 ; Blank
-  .byte %01111111	; Snake BL
+  .byte %01111111	; Apple BL
   .byte %01111111
   .byte %01111111
   .byte %01111111
@@ -90,7 +90,7 @@ INES_SRAM   = 0 ; Battery backed RAM on cartridge
   .byte %01111111
   .byte %00000000
   .byte $00, $00, $00, $00, $00, $00, $00, $00 ; Blank
-  .byte %11111110	; Snake BR
+  .byte %11111110	; Apple BR
   .byte %11111110
   .byte %11111110
   .byte %11111110
@@ -104,15 +104,22 @@ INES_SRAM   = 0 ; Battery backed RAM on cartridge
   .addr reset
   .addr irq
 
+
 ; Commonly used variables
 .segment "ZEROPAGE"
+
+.enum PpuSignal
+  FrameReady = 1 
+  DisableRendering = 2
+.endenum
+
   ; NMI state
   nmi_lock: .res 1 ; Prevent NMI re-entry
   ; Signals for the NMI handler
-  ; If set to SIGNAL_FRAME_READY, trigger a frame update (write nt_update)
+  ; If set to PpuSignal::FrameReady, trigger a frame update (write nt_update)
+  ; If set to PpuSignal::DisableRendering, turn off PPU rendering
   ; When the NMI triggers, the NMI handler will set this variable back to 0,
   ; which means it acknowledged the signal.
-  SIGNAL_FRAME_READY = 1
   nmi_signal: .res 1 
 
   ; Controller input
@@ -133,12 +140,14 @@ INES_SRAM   = 0 ; Battery backed RAM on cartridge
   ; RNG seed
   seed: .res 2
 
-
 .segment "BSS"
   ; Nametable/palette buffers for PPU update
   nt_update:     .res 256 
   nt_update_len: .res 1
   pal_update:    .res 32
+
+  ; Menu state
+  menu_state: .res 1
 
   ; Game state
   snake_head_index:     .res 1
@@ -147,6 +156,8 @@ INES_SRAM   = 0 ; Battery backed RAM on cartridge
   snake_len:            .res 1
   snake_x:	        .res 256
   snake_y:	        .res 256
+  ; Array of booleans for snake body presence
+  snake_segments:       .res 256
 
   apple_x:	    .res 1
   apple_y:	    .res 1
@@ -229,6 +240,16 @@ nmi:
   bne :+          ; If the signal is 0, that means the next frame isn't ready yet
     jmp @nmi_end
 :
+  cmp #PpuSignal::DisableRendering
+  bne :+
+    lda #$00000000
+    sta PPUMASK
+    lda #0
+    sta nmi_signal
+    jmp @nmi_end
+:
+
+  ; otherwise the signal must've been PpuSignal::FrameRead
 
   ; Update the nametables with the buffered tile updates
   ldx #0
@@ -264,7 +285,6 @@ nmi:
   lda #%00011110
   sta $2001
 
-
 @ppu_update_done:
   ; Done rendering, unlock NMI and acknowledge frame as complete
   lda #0
@@ -285,8 +305,19 @@ nmi:
 irq:
   rti
 
+; Turn off the PPU rendering for manual nametable updates
+.proc ppu_disable_rendering
+  lda #PpuSignal::DisableRendering
+  sta nmi_signal
+  :
+    lda nmi_signal
+    bne :-
+  rts
+.endproc
+
+; Block until NMI returns
 .proc ppu_update
-  lda #1
+  lda #PpuSignal::FrameReady
   sta nmi_signal
   :
     lda nmi_signal
@@ -389,6 +420,30 @@ irq:
   rts
 .endproc
 
+; Makes the background all black.
+; Rendering must be turned off before this is called.
+.proc clear_background
+  lda PPUSTATUS ; clear write latch
+
+  ; Set base address for the first nametable
+  lda #$20
+  sta PPUADDR
+  lda #$00
+  sta PPUADDR
+
+  ldy #30  ; 30 rows
+  :
+    ldx #32
+    :
+      sta PPUDATA
+      dex
+      bne :-
+    dey
+    bne :--
+
+  rts
+.endproc
+
 ;
 ; Main section
 ;
@@ -447,6 +502,13 @@ setup:
 :
 
   ; Draw everything
+  jsr ppu_update
+  jmp @loop
+
+gameover:
+  jsr ppu_disable_rendering
+  jsr clear_background
+@loop:
   jsr ppu_update
   jmp @loop
 
@@ -682,9 +744,15 @@ BUTTON_A      = 1 << 7
   bne :+
   cpy apple_y
   bne :+
+  ; Mark the segment as filled
+  ; Since we're on the apple, we know we can't be inside of the body so
+  ; no collision check is required
+  lda #1
+  jsr update_segment_set
   ; Generate new apple, increase length 
   jsr new_apple 
   inc snake_len 
+
   ; Don't need to remove the tail if we eat an apple
   ; so just return
   rts 
@@ -704,11 +772,82 @@ BUTTON_A      = 1 << 7
   lda snake_y, x
   sta tail_y
 
+  ; Remove the segment from the set
+  ldx tail_x
+  ldy tail_y
+  lda #0
+  jsr update_segment_set
+
+  ; Clear the tail tile
   ldx tail_x
   ldy tail_y
   lda #0
   jsr ppu_update_tile_2x2
+
+  ; Do the collision check
+  ldx snake_head_index
+  lda snake_x, x
+  sta next_x
+  lda snake_y, x
+  sta next_y
+  
+  ldx next_x
+  ldy next_y
+  jsr check_segment_set
+  beq :+
+    jmp gameover
+:
+
+  ; Didn't hit anything, finally update the segment set to include the new head
+  ldx next_x
+  ldy next_y
+  lda #1
+  jsr update_segment_set
  
+  rts
+.endproc
+
+; Write a boolean 0/1 at (x, y) to the segment set to mark it as occupied/unoccupied
+; ---Parameters---
+; A - 0 or 1
+; X - X coordinate
+; Y - Y coordinate
+.proc update_segment_set
+  pha
+  
+  ; (y << 4) | x
+  tya 
+  asl
+  asl
+  asl
+  asl
+  stx t1 
+  ora t1
+  
+  tax
+  pla
+  sta snake_segments, x
+
+  rts
+.endproc
+
+; Check if the tile at (x, y) is occupied
+; The zero flag will be set if unoccupied, and unset if occupied.
+; ---Parameters---
+; X - X coordinate
+; Y - Y coordinate
+.proc check_segment_set
+  tya 
+  asl
+  asl
+  asl
+  asl
+  stx t1 
+  ora t1
+
+  tax
+  lda snake_segments, x
+
   rts
 .endproc
 
@@ -717,6 +856,10 @@ BUTTON_A      = 1 << 7
 ;
 
 ; From https://www.nesdev.org/wiki/Random_number_generator
+;
+; Generates a pseudo-random byte based on the seed.
+; ---Returns---
+; A - The generated byte (0-255)
 .proc rand_byte
   ldy #8     ; iteration count (generates 8 bits)
   lda seed+0
@@ -740,8 +883,15 @@ BUTTON_A      = 1 << 7
   jsr rand_byte
   and #%00001111 ; Only need a number from 0-15 so mask off the top 4 bits
   sta apple_y
+  ; Apple with Y coordinate of 15 is invalid (out of bounds)
+  cmp #15
+  bcs new_apple
 
-  ; TODO: Check if position is inside of body?
+  ; Check if position is inside of body
+  ldx apple_x
+  ldy apple_y
+  jsr check_segment_set
+  bne new_apple         ; Recurse to try again
 
   ldx apple_x
   ldy apple_y
@@ -750,3 +900,4 @@ BUTTON_A      = 1 << 7
 
   rts
 .endproc
+
