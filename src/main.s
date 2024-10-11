@@ -77,6 +77,9 @@ INES_SRAM   = 0 ; Battery backed RAM on cartridge
   SIGNAL_FRAME_READY = 1
   nmi_signal: .res 1 
 
+  ; Controller input
+  buttons: .res 1
+
   ; Temp registers
   t1: .res 1
   t2: .res 1
@@ -86,7 +89,7 @@ INES_SRAM   = 0 ; Battery backed RAM on cartridge
   GRID_WIDTH = 16
   GRID_HEIGHT = 15
   ; Commonly used game state
-  SNAKE_FRAMES_PER_MOVE = 15
+  SNAKE_FRAMES_PER_MOVE = 10
   snake_timer: .res 1
 
 .segment "BSS"
@@ -386,6 +389,8 @@ setup:
   jsr ppu_update
 @loop:
   ; Logic executed once per frame here
+  jsr handle_input
+  
   dec snake_timer
   bne :+
     lda #SNAKE_FRAMES_PER_MOVE
@@ -397,10 +402,98 @@ setup:
   jsr ppu_update
   jmp @loop
 
-; 
+; ----------
 ; Procedures
-;
+; ----------
 
+; --------------
+; Input handling
+; --------------
+BUTTON_RIGHT  = 1 << 0
+BUTTON_LEFT   = 1 << 1
+BUTTON_DOWN   = 1 << 2
+BUTTON_UP     = 1 << 3
+BUTTON_START  = 1 << 4
+BUTTON_SELECT = 1 << 5
+BUTTON_B      = 1 << 6
+BUTTON_A      = 1 << 7
+
+; Reads the bitset of buttons from the controller.
+; Preserves: X, Y
+.proc poll_input
+  ; Turn strobe on and off to poll input state once
+  lda #1
+  sta CONTROLLER1
+  sta buttons     ; Insert a bit here that will be shifted out into the carry after 8 reads to end the loop
+  lda #0
+  sta CONTROLLER1
+  
+@read_button:
+  lda CONTROLLER1
+  lsr a        ; bit 0 -> Carry
+  rol buttons  ; Carry -> bit 0; bit 7 -> Carry
+  bcc @read_button
+
+  rts
+.endproc
+
+; Preserves: X, Y
+.proc handle_input
+  jsr poll_input
+
+  lda buttons             ; if right is pressed
+  and #BUTTON_RIGHT
+  beq :+
+    lda snake_direction   ; backwards (left) not allowed
+    cmp #Direction::Left
+    beq @end
+    
+    lda #Direction::Right
+    sta snake_direction
+    jmp @end
+:
+  lda buttons             ; if left is pressed
+  and #BUTTON_LEFT
+  beq :+
+    lda snake_direction   ; backwards (right) not allowed
+    cmp #Direction::Right
+    beq @end
+
+    lda #Direction::Left
+    sta snake_direction
+    jmp @end
+:
+  lda buttons             ; if up is pressed
+  and #BUTTON_UP
+  beq :+
+    lda snake_direction   ; backwards (Down) not allowed
+    cmp #Direction::Down
+    beq @end
+
+    lda #Direction::Up
+    sta snake_direction
+    jmp @end
+:
+  lda buttons             ; if down is pressed
+  and #BUTTON_DOWN
+  beq :+
+    lda snake_direction   ; backwards (Up) not allowed
+    cmp #Direction::Up
+    beq @end
+
+    lda #Direction::Down
+    sta snake_direction
+    jmp @end
+:
+  @end:
+    rts
+.endproc
+
+
+
+; -----------
+; Snake stuff
+; -----------
 ; Set initial state for the snake
 .proc init_snake
   lda #3
