@@ -184,7 +184,6 @@ nmi:
     jmp @nmi_end
 :
 
-
   ; Update the nametables with the buffered tile updates
   ldx #0
   
@@ -305,7 +304,9 @@ irq:
 ; Sets a 2x2 group of tiles at X/Y (0-15) to A next time ppu_update is called
 ; Can be used with rendering on
 .proc ppu_update_tile_2x2
-  sta t1 ; t1 stores tile_id
+  tile_id = t1
+
+  sta tile_id 
   clc
 
   txa ; x << 1
@@ -317,26 +318,26 @@ irq:
   tay 
   
   ; Top left
-  lda t1
+  lda tile_id
   jsr ppu_update_tile
   
   ; Top right
   inx
-  inc t1 ; tile_id++
-  lda t1
+  inc tile_id
+  lda tile_id
   jsr ppu_update_tile
   
   ; Bottom left
   dex
   iny
-  inc t1 ; tile_id++
-  lda t1
+  inc tile_id 
+  lda tile_id
   jsr ppu_update_tile
 
   ; Bottom right
   inx
-  inc t1 ; tile_id++
-  lda t1
+  inc tile_id 
+  lda tile_id
   jsr ppu_update_tile
 
   rts
@@ -457,11 +458,14 @@ setup:
 ; Move the snake in the current direction
 ; Does not preserve registers
 .proc update_snake_position
+  next_x = t1
+  next_y = t2
+
   ldx snake_head_index
-  lda snake_x,x ; store head x
-  sta t1        ; next_x
-  lda snake_y,x ; store head y
-  sta t2        ; next_y
+  lda snake_x, x ; store head x
+  sta next_x
+  lda snake_y, x ; store head y
+  sta next_y
 
   lda snake_direction
   cmp #Direction::Right
@@ -474,52 +478,52 @@ setup:
   beq @down
   
   @right:
-    ldx t1          ; next_x++
+    ldx next_x      ; next_x++
     inx
     cpx #GRID_WIDTH ; if next_x >= GRID_WIDTH
     bcc :+
       ldx #0
   :
-    stx t1
+    stx next_x
     jmp @switch_end
   @left:
-    dec t1            ; next_x--;
+    dec next_x        ; next_x--;
     bpl :+            ; if next_x < 0 
       ldx #GRID_WIDTH ; next_x = GRID_WIDTH - 1
       dex
-      stx t1
+      stx next_x
   :
     jmp @switch_end
   @up:
-    dec t2             ; next_y--;
+    dec next_y         ; next_y--;
     bpl :+             ; if next_y < 0 
       ldx #GRID_HEIGHT ; next_y = GRID_HEIGHT - 1
       dex
-      stx t2
+      stx next_y
   :
     jmp @switch_end
   @down:
-    ldx t2             ; next_y++;
+    ldx next_y         ; next_y++;
     inx
     cpx #GRID_HEIGHT   ; if next_y >= GRID_HEIGHT
     bcc :+
       ldx #0           ; next_y = GRID_HEIGHT
   :
-    stx t2
+    stx next_y
 @switch_end:
 
   dec snake_head_index ; snake_head_index --;
   ; write new head
   ldx snake_head_index
-  lda t1
+  lda next_x
   sta snake_x,x
-  lda t2
+  lda next_y
   sta snake_y,x
 
   ; Update tiles
   ; Draw the new head
-  ldx t1 
-  ldy t2
+  ldx next_x 
+  ldy next_y
   lda #4
   jsr ppu_update_tile_2x2
 
@@ -529,13 +533,16 @@ setup:
   adc snake_len
   tax
 
-  lda snake_x, x
-  sta t1
-  lda snake_y, x
-  sta t2
+  tail_x = t3
+  tail_y = t4
 
-  ldx t1
-  ldy t2
+  lda snake_x, x
+  sta tail_x
+  lda snake_y, x
+  sta tail_y
+
+  ldx tail_x
+  ldy tail_y
   lda #0
   jsr ppu_update_tile_2x2
   
