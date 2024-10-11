@@ -24,7 +24,8 @@ INES_SRAM   = 0 ; Battery backed RAM on cartridge
   .byte $00, $00, $00, $00, $00, $00, $00, $00 ; Blank
   .byte $00, $00, $00, $00, $00, $00, $00, $00 ; Blank
   .byte $00, $00, $00, $00, $00, $00, $00, $00 ; Blank
-  .byte %00000000	; Square TL
+
+  .byte %00000000	; Snake TL
   .byte %01111111
   .byte %01111111
   .byte %01111111
@@ -33,7 +34,7 @@ INES_SRAM   = 0 ; Battery backed RAM on cartridge
   .byte %01111111
   .byte %01111111
   .byte $00, $00, $00, $00, $00, $00, $00, $00 ; Blank
-  .byte %00000000	; Square TR
+  .byte %00000000	; Snake TR
   .byte %11111110
   .byte %11111110
   .byte %11111110
@@ -42,7 +43,7 @@ INES_SRAM   = 0 ; Battery backed RAM on cartridge
   .byte %11111110
   .byte %11111110
   .byte $00, $00, $00, $00, $00, $00, $00, $00 ; Blank
-  .byte %01111111	; Square BL
+  .byte %01111111	; Snake BL
   .byte %01111111
   .byte %01111111
   .byte %01111111
@@ -51,7 +52,7 @@ INES_SRAM   = 0 ; Battery backed RAM on cartridge
   .byte %01111111
   .byte %00000000
   .byte $00, $00, $00, $00, $00, $00, $00, $00 ; Blank
-  .byte %11111110	; Square BR
+  .byte %11111110	; Snake BR
   .byte %11111110
   .byte %11111110
   .byte %11111110
@@ -60,6 +61,43 @@ INES_SRAM   = 0 ; Battery backed RAM on cartridge
   .byte %11111110
   .byte %00000000
   .byte $00, $00, $00, $00, $00, $00, $00, $00 ; Blank
+
+  .byte $00, $00, $00, $00, $00, $00, $00, $00 ; Blank
+  .byte %00000000	; Snake TL
+  .byte %01111111
+  .byte %01111111
+  .byte %01111111
+  .byte %01111111
+  .byte %01111111
+  .byte %01111111
+  .byte %01111111
+  .byte $00, $00, $00, $00, $00, $00, $00, $00 ; Blank
+  .byte %00000000	; Snake TR
+  .byte %11111110
+  .byte %11111110
+  .byte %11111110
+  .byte %11111110
+  .byte %11111110
+  .byte %11111110
+  .byte %11111110
+  .byte $00, $00, $00, $00, $00, $00, $00, $00 ; Blank
+  .byte %01111111	; Snake BL
+  .byte %01111111
+  .byte %01111111
+  .byte %01111111
+  .byte %01111111
+  .byte %01111111
+  .byte %01111111
+  .byte %00000000
+  .byte $00, $00, $00, $00, $00, $00, $00, $00 ; Blank
+  .byte %11111110	; Snake BR
+  .byte %11111110
+  .byte %11111110
+  .byte %11111110
+  .byte %11111110
+  .byte %11111110
+  .byte %11111110
+  .byte %00000000
   
 .segment "VECTORS"
   .addr nmi
@@ -88,9 +126,13 @@ INES_SRAM   = 0 ; Battery backed RAM on cartridge
 
   GRID_WIDTH = 16
   GRID_HEIGHT = 15
-  ; Commonly used game state
   SNAKE_FRAMES_PER_MOVE = 10
+
+  ; Commonly used game state
   snake_timer: .res 1
+  ; RNG seed
+  seed: .res 2
+
 
 .segment "BSS"
   ; Nametable/palette buffers for PPU update
@@ -359,7 +401,7 @@ irq:
 
 palettes:
   ; Background Palette
-  .byte $0f, $20, $00, $00
+  .byte $0f, $20, $16, $00
   .byte $0f, $00, $00, $00
   .byte $0f, $00, $00, $00
   .byte $0f, $00, $00, $00
@@ -384,7 +426,12 @@ main:
   cpx #$20
   bne @load_palettes
 setup:
+  lda #$78
+  sta seed
+  lda #$56
+  sta seed+1
   jsr init_snake
+  jsr new_apple
 
   jsr ppu_update
 @loop:
@@ -488,8 +535,6 @@ BUTTON_A      = 1 << 7
   @end:
     rts
 .endproc
-
-
 
 ; -----------
 ; Snake stuff
@@ -607,10 +652,13 @@ BUTTON_A      = 1 << 7
 
   dec snake_head_index ; snake_head_index --;
   ; write new head
+  ; Also push x and y to use them after drawing the head tile
   ldx snake_head_index
   lda next_x
+  pha         
   sta snake_x,x
   lda next_y
+  pha
   sta snake_y,x
 
   ; Update tiles
@@ -619,6 +667,23 @@ BUTTON_A      = 1 << 7
   ldy next_y
   lda #4
   jsr ppu_update_tile_2x2
+
+  pla ; pop next_y
+  tay
+  pla ; pop next_x
+  tax 
+  ; if next_x == apple_x && next_y == apple_y
+  cpx apple_x 
+  bne :+
+  cpy apple_y
+  bne :+
+  ; Generate new apple, increase length 
+  jsr new_apple 
+  inc snake_len 
+  ; Don't need to remove the tail if we eat an apple
+  ; so just return
+  rts 
+:
 
   ; Remove old tail
   lda snake_head_index
@@ -638,6 +703,45 @@ BUTTON_A      = 1 << 7
   ldy tail_y
   lda #0
   jsr ppu_update_tile_2x2
-  
+ 
+  rts
+.endproc
+
+;
+; Apple logic
+;
+
+; From https://www.nesdev.org/wiki/Random_number_generator
+.proc rand_byte
+  ldy #8     ; iteration count (generates 8 bits)
+  lda seed+0
+:
+  asl        ; shift the register
+  rol seed+1
+  bcc :+
+  eor #$39   ; apply XOR feedback whenever a 1 bit is shifted out
+:
+  dey
+  bne :--
+  sta seed+0
+  cmp #0     ; reload flags
+  rts
+.endproc
+
+.proc new_apple
+  jsr rand_byte
+  and #%00001111 ; Only need a number from 0-15 so mask off the top 4 bits
+  sta apple_x
+  jsr rand_byte
+  and #%00001111 ; Only need a number from 0-15 so mask off the top 4 bits
+  sta apple_y
+
+  ; TODO: Check if position is inside of body?
+
+  ldx apple_x
+  ldy apple_y
+  lda #8
+  jsr ppu_update_tile_2x2
+
   rts
 .endproc
