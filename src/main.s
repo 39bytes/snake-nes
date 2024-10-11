@@ -16,88 +16,7 @@ INES_SRAM   = 0 ; Battery backed RAM on cartridge
 
 ; Character memory
 .segment "TILES"
-  .byte $00, $00, $00, $00, $00, $00, $00, $00 ; Blank
-  .byte $00, $00, $00, $00, $00, $00, $00, $00 ; Blank
-  .byte $00, $00, $00, $00, $00, $00, $00, $00 ; Blank
-  .byte $00, $00, $00, $00, $00, $00, $00, $00 ; Blank
-  .byte $00, $00, $00, $00, $00, $00, $00, $00 ; Blank
-  .byte $00, $00, $00, $00, $00, $00, $00, $00 ; Blank
-  .byte $00, $00, $00, $00, $00, $00, $00, $00 ; Blank
-  .byte $00, $00, $00, $00, $00, $00, $00, $00 ; Blank
-
-  .byte %00000000	; Snake TL
-  .byte %01111111
-  .byte %01111111
-  .byte %01111111
-  .byte %01111111
-  .byte %01111111
-  .byte %01111111
-  .byte %01111111
-  .byte $00, $00, $00, $00, $00, $00, $00, $00 ; Blank
-  .byte %00000000	; Snake TR
-  .byte %11111110
-  .byte %11111110
-  .byte %11111110
-  .byte %11111110
-  .byte %11111110
-  .byte %11111110
-  .byte %11111110
-  .byte $00, $00, $00, $00, $00, $00, $00, $00 ; Blank
-  .byte %01111111	; Snake BL
-  .byte %01111111
-  .byte %01111111
-  .byte %01111111
-  .byte %01111111
-  .byte %01111111
-  .byte %01111111
-  .byte %00000000
-  .byte $00, $00, $00, $00, $00, $00, $00, $00 ; Blank
-  .byte %11111110	; Snake BR
-  .byte %11111110
-  .byte %11111110
-  .byte %11111110
-  .byte %11111110
-  .byte %11111110
-  .byte %11111110
-  .byte %00000000
-  .byte $00, $00, $00, $00, $00, $00, $00, $00 ; Blank
-
-  .byte $00, $00, $00, $00, $00, $00, $00, $00 ; Blank
-  .byte %00000000	; Apple TL
-  .byte %01111111
-  .byte %01111111
-  .byte %01111111
-  .byte %01111111
-  .byte %01111111
-  .byte %01111111
-  .byte %01111111
-  .byte $00, $00, $00, $00, $00, $00, $00, $00 ; Blank
-  .byte %00000000	; Apple TR
-  .byte %11111110
-  .byte %11111110
-  .byte %11111110
-  .byte %11111110
-  .byte %11111110
-  .byte %11111110
-  .byte %11111110
-  .byte $00, $00, $00, $00, $00, $00, $00, $00 ; Blank
-  .byte %01111111	; Apple BL
-  .byte %01111111
-  .byte %01111111
-  .byte %01111111
-  .byte %01111111
-  .byte %01111111
-  .byte %01111111
-  .byte %00000000
-  .byte $00, $00, $00, $00, $00, $00, $00, $00 ; Blank
-  .byte %11111110	; Apple BR
-  .byte %11111110
-  .byte %11111110
-  .byte %11111110
-  .byte %11111110
-  .byte %11111110
-  .byte %11111110
-  .byte %00000000
+  .incbin "../assets/tiles.chr"
   
 .segment "VECTORS"
   .addr nmi
@@ -900,4 +819,3 @@ BUTTON_A      = 1 << 7
 
   rts
 .endproc
-
