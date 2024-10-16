@@ -371,11 +371,6 @@ irq:
 ; Update an attribute byte to A where the top left is X/Y
 ; y >> 1 |
 .proc ppu_update_attribute
-  ; 0000 1111 y
-  ; 0000 1100 x
-
-  ; 0010 0011 1100 0000
-  ; 0010 0011 1101 1001
   pha
   low_byte = t1
 
