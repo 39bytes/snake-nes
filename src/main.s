@@ -379,7 +379,7 @@ irq:
 
   ; 0xC0 | (y >> 1) << 2 | (x >> 3)
   tya
-  lsr ; Mask off the bottom bit
+  lsr 
   lsr 
   asl ; (y >> 2) << 3
   asl
