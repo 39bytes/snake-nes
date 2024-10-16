@@ -1,13 +1,11 @@
 .include "symbols.s"
 
-; See https://github.com/bbbradsmith/NES-ca65-example/blob/master/example.s
-; Also useful: https://www.nesdev.org/wiki/The_frame_and_NMIs
 INES_MAPPER = 0 ; Mapper 0
 INES_MIRROR = 1 ; Horizontal mirroring
 INES_SRAM   = 0 ; Battery backed RAM on cartridge
 
 .segment "HEADER"
-  .byte $4E, $45, $53, $1A ; Identifier
+  .byte "NES", $1A ; Identifier
   .byte 2                  ; 2x 16KB PRG code
   .byte 1                  ; 1x  8KB CHR data
   .byte INES_MIRROR | (INES_SRAM << 1) | ((INES_MAPPER & $0F) << 4)
@@ -22,7 +20,6 @@ INES_SRAM   = 0 ; Battery backed RAM on cartridge
   .addr nmi
   .addr reset
   .addr irq
-
 
 ; Commonly used variables
 .segment "ZEROPAGE"
@@ -120,6 +117,8 @@ clear_memory:
   sta $0700, x
   inx
   bne clear_memory
+  
+  jsr clear_background
 
 ; second wait for vblank, PPU is ready after this
 vblankwait2:
@@ -344,7 +343,68 @@ irq:
 ; Preserves X, Y and A
 .proc ppu_put_char
   jsr ppu_update_tile
+  rts
+.endproc
+
+; Update a byte in the nametable
+; XY = A
+.proc ppu_update_byte
+  pha ; temporarily store A on stack
+  tya
+  pha ; temporarily store Y on stack
+  ldy nt_update_len
+  txa
+  sta nt_update, Y
+  iny
+  pla ; recover Y value (but put in Y)
+  sta nt_update, Y
+  iny
+  pla ; recover A value (byte)
+  sta nt_update, Y
+  iny
+  sty nt_update_len
+
+  rts
+.endproc
+
+; 32x32 -> 16x16
+; Update an attribute byte to A where the top left is X/Y
+; y >> 1 |
+.proc ppu_update_attribute
+  ; 0000 1111 y
+  ; 0000 1100 x
+
+  ; 0010 0011 1100 0000
+  ; 0010 0011 1101 1001
+  pha
+  low_byte = t1
+
+  lda #$C0
+  sta low_byte
+
+  ; 0xC0 | (y >> 1) << 2 | (x >> 3)
+  tya
+  lsr ; Mask off the bottom bit
+  lsr 
+  asl ; (y >> 2) << 3
+  asl
+  asl
+
+  ora low_byte
+  sta low_byte
   
+  txa ; (x >> 2)
+  lsr
+  lsr
+  
+  ora low_byte
+  sta low_byte
+
+  ldx #$23
+  ldy low_byte
+  pla
+  jsr ppu_update_byte
+
   rts
 .endproc
 
@@ -386,7 +446,7 @@ irq:
 palettes:
   ; Background Palette
   .byte $0f, $20, $16, $00
-  .byte $0f, $20, $00, $10
+  .byte $0f, $20, $10, $00
   .byte $0f, $00, $00, $00
   .byte $0f, $00, $00, $00
 
@@ -434,9 +494,10 @@ setup:
   jmp @loop
 
 gameover:
+@loop:
+  jsr handle_input
   jsr write_gameover_text
   jsr ppu_update
-@loop:
   jmp @loop
 
 ; ----------
@@ -478,6 +539,11 @@ BUTTON_A      = 1 << 7
 .proc handle_input
   jsr poll_input
 
+  lda buttons
+  and #BUTTON_START
+  beq :+
+    jmp reset             ; restart when pressing start
+:
   lda buttons             ; if right is pressed
   and #BUTTON_RIGHT
   beq :+
@@ -832,52 +898,87 @@ BUTTON_A      = 1 << 7
 ; Menu logic
 ;
 
+.include "utils.s"
+
+.macro put_char char, x_coord, y_coord
+  ldx #x_coord
+  ldy #y_coord
+  lda char
+  jsr ppu_put_char
+.endmacro
+
+.macro put_digit digit, x_coord, y_coord
+  ldx #x_coord
+  ldy #y_coord
+
+  lda #'0'
+  clc
+  adc digit
+
+  jsr ppu_put_char
+.endmacro
+
+.macro update_palette_byte byte, x_coord, y_coord
+  ldx #x_coord
+  ldy #y_coord
+  lda #byte
+  jsr ppu_update_attribute
+.endmacro
+
 .proc write_gameover_text
-  ldx #12
-  ldy #15
-  lda #71 
+  put_char #'G', 12, 12
+  put_char #'A', 13, 12
+  put_char #'M', 14, 12
+  put_char #'E', 15, 12
+  put_char #' ', 16, 12
+  put_char #'O', 17, 12
+  put_char #'V', 18, 12
+  put_char #'E', 19, 12
+  put_char #'R', 20, 12
+
+  update_palette_byte %01010101, 12, 12
+  update_palette_byte %01010101, 16, 12
+  update_palette_byte %01010101, 20, 12
+
+  put_char #'S', 12, 16
+  put_char #'C', 13, 16
+  put_char #'O', 14, 16
+  put_char #'R', 15, 16
+  put_char #'E', 16, 16
+  put_char #':', 17, 16
+  put_char #' ', 18, 16
+
+  lda snake_len
+  clc
+  sbc #3
+
+  sta Hex0
+  jsr byte_to_decimal
+
+  put_digit DecHundreds, 19, 16
+  put_digit DecTens, 20, 16
+  put_digit DecOnes, 21, 16
+
+  update_palette_byte %01010101, 12, 16
+  update_palette_byte %01010101, 16, 16
+  update_palette_byte %01010101, 20, 16
+
+
+  put_char #'P', 12, 20
+  put_char #'R', 13, 20
+  put_char #'E', 14, 20
+  put_char #'S', 15, 20
+  put_char #'S', 16, 20
+  put_char #' ', 17, 20
+  put_char #'S', 18, 20
+  put_char #'T', 19, 20
+  put_char #'A', 20, 20
+  put_char #'R', 21, 20
+  put_char #'T', 22, 20
+
+  update_palette_byte %01010101, 12, 20
+  update_palette_byte %01010101, 16, 20
+  update_palette_byte %01010101, 20, 20
   
-  jsr ppu_put_char
-
-  ldx #13
-  ldy #15
-  lda #65
-  jsr ppu_put_char
-
-  ldx #14
-  ldy #15
-  lda #77
-  jsr ppu_put_char
-
-  ldx #15
-  ldy #15
-  lda #69
-  jsr ppu_put_char
-
-  ldx #16
-  ldy #15
-  lda #32
-  jsr ppu_put_char
-
-  ldx #17
-  ldy #15
-  lda #79
-  jsr ppu_put_char
-
-  ldx #18
-  ldy #15
-  lda #86
-  jsr ppu_put_char
-
-  ldx #19
-  ldy #15
-  lda #69
-  jsr ppu_put_char
-
-  ldx #20
-  ldy #15
-  lda #82
-  jsr ppu_put_char
-
   rts
 .endproc
